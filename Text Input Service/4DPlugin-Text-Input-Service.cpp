@@ -262,6 +262,8 @@ void INPUT_SOURCE_LIST(PA_PluginParameters params) {
         PA_ClearVariable(&v);
     }
     
+    [list release];
+    
     PA_ReturnCollection(params, ss);
 }
 
