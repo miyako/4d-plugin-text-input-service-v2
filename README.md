@@ -22,7 +22,7 @@ INPUT SET SOURCE (source)
 </div>
 
 ```
-source:=INPUT Get source({identifier})
+source:=INPUT Get source ({identifier})
 ```
 
 <div class="grid">
@@ -32,7 +32,7 @@ source:=INPUT Get source({identifier})
 <div class="syntax-td cell cell--2">identifier</div>
 <div class="syntax-td cell cell--2">TEXT</div>
 <div class="syntax-td cell cell--8"></div>   
-  <div class="syntax-td cell cell--2">source</div>
+<div class="syntax-td cell cell--2">source</div>
 <div class="syntax-td cell cell--2">TEXT</div>
 <div class="syntax-td cell cell--8"></div>   
 </div>
@@ -42,3 +42,16 @@ source:=INPUT Get source({identifier})
 * pass an empty string to request the current input source.
 
 * pass the string "ASCII" to request the current ascii capable keyboard input source.
+
+```
+INPUT SOURCE LIST (sources)
+```
+
+<div class="grid">
+<div class="syntax-th cell cell--2">Parameter</div>
+<div class="syntax-th cell cell--2">Type</div>
+<div class="syntax-th cell cell--8">Description</div>
+<div class="syntax-td cell cell--2">sources</div>
+<div class="syntax-td cell cell--2">COLLECTION</div>
+<div class="syntax-td cell cell--8"></div>   
+</div>
