@@ -21,9 +21,11 @@ INPUT SET SOURCE (identifier)
 <div class="syntax-td cell cell--8"></div>   
 </div>
 
+* pass a string returned from `INPUT Get source` in `identifier`.
+
 * pass a [RFC 4647](https://www.ietf.org/rfc/rfc4647.txt) or [RFC 3066](https://www.ietf.org/rfc/rfc3066.txt) as `identifier` to specify a language.
 
-* pass the string "ASCII" to specify the current ascii capable keyboard input source.
+* pass the string "ASCII" or an empty string to specify the current ascii capable keyboard input source.
 
 ```
 source:=INPUT Get source ({identifier})
