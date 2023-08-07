@@ -1,0 +1,21 @@
+{
+    "name": "Text Input Service",
+    "id": 20000,
+    "commands": [
+        {
+            "theme": "Input Source",
+            "syntax": "INPUT SET SOURCE(&T)",
+            "threadSafe": false
+        },
+        {
+            "theme": "Input Source",
+            "syntax": "INPUT Get source(&T):T",
+            "threadSafe": false
+        },
+        {
+            "theme": "Input Source",
+            "syntax": "INPUT Sources list:C",
+            "threadSafe": false
+        }  
+    ]
+}
