@@ -10,4 +10,4 @@ Commands to control the front-end text editor.
 
 #### Syntax
 
-miyako.github.io
+[miyako.github.io](https://miyako.github.io/2023/08/03/4d-plugin-text-input-service-v2.html)
