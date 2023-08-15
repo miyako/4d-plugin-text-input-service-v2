@@ -8,6 +8,6 @@ Commands to control the front-end text editor.
 
 <img width="733" alt="" src="https://github.com/miyako/4d-plugin-text-input-service-v2/assets/1725068/d0aff5a0-e753-423a-bcb4-4cc092003382">
 
-#### Syntax
+### Syntax
 
 [miyako.github.io](https://miyako.github.io/2023/08/03/4d-plugin-text-input-source-v2.html)
