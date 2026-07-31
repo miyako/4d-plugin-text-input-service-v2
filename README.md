@@ -8,321 +8,250 @@ Commands to control the front-end text editor.
 
 <img width="733" alt="" src="https://github.com/miyako/4d-plugin-text-input-service-v2/assets/1725068/d0aff5a0-e753-423a-bcb4-4cc092003382">
 
-## Overview
-
-The **Text Input Service** plugin lets a 4D application inspect and control the
-**keyboard input source** (keyboard layout, Input Method / IME, or palette
-input source) currently active on the machine. It wraps Apple's *Text Input
-Source Services* (part of the Carbon framework) and exposes three 4D
-commands:
+The Text Input Service plugin lets a 4D application inspect and change the active macOS **keyboard input source** (a keyboard layout, an Input Method / IME, or a palette input source), driving Apple's Text Input Source Services (`TISCopyCurrentKeyboardInputSource`, `TISCreateInputSourceList`, `TISSelectInputSource`, etc., from `<Carbon/Carbon.h>`). Input source identifiers and enumerated results are plain `Text`; the enumerated list is a `Collection` of objects, one of which carries an `icon` as a `Picture` encoded as TIFF.
 
 | Command | Returns | Purpose |
 |---|---|---|
-| `INPUT SET SOURCE` | — | Switch the active keyboard input source |
-| `INPUT Get source` | Text | Read the identifier of a keyboard input source |
-| `INPUT Sources list` | Collection | Enumerate every input source installed on the machine |
+| [`INPUT SET SOURCE`](#input-set-source) | — | Switch the active keyboard input source |
+| [`INPUT Get source`](#input-get-source) | Text | Read the identifier of a keyboard input source |
+| [`INPUT Sources list`](#input-sources-list) | Collection | Enumerate installed, selectable input sources |
 
-**Platform:** macOS only. The plugin builds a Windows binary (`.4DX`) as part
-of the same cross-platform `.bundle`, but the input-source APIs used here
-(`TISCopyCurrentKeyboardInputSource`, `TISCreateInputSourceList`, etc.) are
-macOS-specific (Carbon `HIToolbox`). Calling these commands on Windows is not
-meaningful and should be guarded in your code with `Current system version`
-or an equivalent platform check if your database also runs on Windows.
-
-**Typical uses:**
-- Force a text field into a specific language/layout before the user starts
-  typing (e.g. force "ASCII" before a password or serial-number field).
-- Detect which language/IME the user currently has active, to adapt UI or
-  logging.
-- Build a settings screen letting the user pick from all input sources
-  installed on their Mac, complete with icon and display name.
+**Platforms:** macOS — verified against source (Carbon Text Input Source Services). Windows — **not verified**; see Requirements below.
 
 ---
 
-## `INPUT SET SOURCE`
+## Requirements & platform notes
+
+- **macOS only, as reviewed.** Every command in this file is implemented on top of Carbon's Text Input Source Services. No explicit minimum macOS version is asserted here — the reviewed source doesn't call any version-gated API, so no specific OS floor can be confidently stated from the code alone.
+- **Windows behavior is unconfirmed.** The plugin's build produces a Windows `.4DX` as part of the same cross-platform bundle, but the source reviewed for this document contains only the Objective‑C/Carbon implementation. Whether these three commands exist, no-op, or behave differently on Windows was not established — test directly on Windows before relying on them there.
+- **Both `INPUT SET SOURCE` and `INPUT Get source` take one mandatory `Text` parameter.** There is no optional/omittable form — pass `""` explicitly to get "current source" behavior.
+- **`INPUT Sources list` takes no parameters.**
+- **Failure is silent, not a 4D error.** If a requested source can't be resolved, `INPUT SET SOURCE` leaves the currently active source unchanged, and `INPUT Get source` returns `""`. Neither raises a 4D error. See [Error handling & troubleshooting](#error-handling--troubleshooting).
+- **`INPUT Sources list` only reports currently *selectable* sources** (it calls `TISCreateInputSourceList` with `includeAllInstalled = false`) — input sources that are installed but currently disabled are not included in the result.
+
+---
+
+## INPUT SET SOURCE
+
+**`INPUT SET SOURCE ( source )`**
 
 ### Syntax
 
 ```4d
-INPUT SET SOURCE ( source )
+INPUT SET SOURCE ( source : Text )
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
-| `source` | Text | Input source to activate. See **Accepted values** below. |
+| `source` | Text | Input source to activate — see accepted values below. |
+| Result | — | No return value (this is a procedure). |
 
-No return value.
-
-### Accepted values for `source`
+**Accepted values for `source`:**
 
 | Value | Behavior |
 |---|---|
-| `""` (empty string) | Selects the current **ASCII-capable** keyboard input source (i.e. a plain Latin keyboard layout, not an IME). |
-| `"ASCII"` | Same as passing `""` — explicitly selects the ASCII-capable input source. |
-| An **input source identifier** (e.g. `"com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese"`, `"com.apple.keylayout.US"`) | Selects the source with that exact identifier, if one is currently installed. Identifiers can be obtained from `INPUT Sources list` (the `inputSourceID` field) or from `INPUT Get source`. |
-| A **language/locale code**, BCP‑47 style (e.g. `"ja-JP"`, `"ja"`, `"fr-CA"`, `"en-US"`) | If no installed source has a matching `inputSourceID`, the plugin falls back to asking macOS for the best input source for that language, and selects it. |
+| `""` | Selects the current **ASCII-capable** keyboard input source (a plain Latin layout, not an IME). |
+| `"ASCII"` | Same as `""` — explicitly selects the ASCII-capable source. |
+| An exact `inputSourceID` (e.g. `"com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese"`) | Selects the source with that identifier, if it's currently selectable (same restricted set `INPUT Sources list` reports). |
+| A language/locale code, BCP‑47 style (e.g. `"ja-JP"`, `"fr"`) | If no selectable source's `inputSourceID` matches the string exactly, the plugin falls back to asking macOS for the best input source for that language, and selects it. |
 
 ### Description
 
-`INPUT SET SOURCE` changes what the *system* considers the active keyboard
-input source — the same effect as the user picking a different layout/IME
-from the macOS menu-bar input-source picker. The change is system-wide (not
-scoped to the 4D window), and only takes effect for subsequent keystrokes.
+`INPUT SET SOURCE` changes the system's active keyboard input source — the same effect as the user picking a different layout/IME from the macOS input-source menu. The change is system-wide and takes effect for subsequent keystrokes, not retroactively.
 
-If more than one installed input source could satisfy the request (for
-example several IMEs are installed for the same language) and at least one of
-them has been used previously in the current session, macOS will prefer the
-most recently used one.
+Resolution order for anything other than `""`/`"ASCII"`: first, an exact match against the `inputSourceID` of every currently selectable source; if nothing matches, the plugin asks macOS to resolve `source` as a language code instead. That language-fallback path goes through an undocumented HIToolbox function — its exact matching rules aren't published by Apple, so it's worth treating as best-effort rather than a guaranteed mapping, and its behavior could change between macOS versions.
 
-If the requested source cannot be resolved at all, the command does nothing
-— no error is raised, and the previously active input source stays active.
+If macOS reports more than one installed source could satisfy a request, and at least one has already been used in the current session, the most-recently-used one is preferred.
 
-### Examples
+If `source` can't be resolved at all, the command does nothing — no error, and the previously active input source stays active.
+
+### Example
+
+From the plugin's own test method (`TEST.4dm`):
 
 ```4d
-// Force a plain ASCII keyboard layout — useful before a password field
-INPUT SET SOURCE("")
+INPUT SET SOURCE("")  //ASCII source
+INPUT SET SOURCE("ASCII")  //also ASCII source
+
+INPUT SET SOURCE("ja-JP")  //by language
+INPUT SET SOURCE("com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese")  //by identifier
 ```
 
+Saving and restoring the source around a field that requires plain ASCII input:
+
 ```4d
-// Equivalent, explicit form
+$saved:=INPUT Get source("")
 INPUT SET SOURCE("ASCII")
-```
 
-```4d
-// Switch by language/locale — macOS will pick a matching input source
-INPUT SET SOURCE("ja-JP")
-```
+  // ... user types into a serial-number/password field ...
 
-```4d
-// Switch by exact input source identifier
-// (identifiers can be discovered via INPUT Sources list)
-INPUT SET SOURCE("com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese")
-```
-
-```4d
-// Typical usage pattern: force ASCII before a numeric/code entry field,
-// then restore whatever the user had active before
-$previousSource:=INPUT Get source("")
-INPUT SET SOURCE("ASCII")
-  // ... let the user type into a serial-number field ...
-INPUT SET SOURCE($previousSource)
+If ($saved#"")
+    INPUT SET SOURCE($saved)
+End if
 ```
 
 ---
 
-## `INPUT Get source`
+## INPUT Get source
+
+**`INPUT Get source ( source ) -> Text`**
 
 ### Syntax
 
 ```4d
-$identifier:=INPUT Get source ( source )
+INPUT Get source ( source : Text ) -> Text
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
-| `source` | Text | Which input source to report on. See **Accepted values** below. |
+| `source` | Text | Which input source to report on — see accepted values below. |
+| Result | Text | The resolved input source's `inputSourceID`, or `""` if nothing could be resolved. |
 
-| Return value | Type | Description |
-|---|---|---|
-| `$identifier` | Text | The input source identifier (e.g. `"com.apple.keylayout.US"`), or an empty string if no matching source could be resolved. |
-
-### Accepted values for `source`
+**Accepted values for `source`:**
 
 | Value | Behavior |
 |---|---|
-| `""` (empty string) | Returns the identifier of the **currently active** keyboard input source (of any kind — ASCII layout, IME, or palette). |
+| `""` | Returns the identifier of the **currently active** input source, of any kind (ASCII layout, IME, or palette) — **not** restricted to ASCII-capable sources. |
 | `"ASCII"` | Returns the identifier of the current **ASCII-capable** input source. |
-| A **language/locale code**, BCP‑47 style (e.g. `"ja-JP"`, `"fr"`, `"en-US"`) | Returns the identifier of the best-matching installed input source for that language. |
+| A language/locale code, BCP‑47 style (e.g. `"ja-JP"`, `"fr"`) | Returns the identifier of the best-matching installed source for that language, via the same undocumented language-resolution path used by `INPUT SET SOURCE`'s fallback. |
 
-> **Note:** unlike `INPUT SET SOURCE`, this command does **not** attempt to
-> resolve a raw input source identifier passed as `source` — only language
-> codes, `""`, and `"ASCII"` are recognized. Passing an identifier such as
-> `"com.apple.keylayout.US"` as the parameter is not a supported use case and
-> will typically return an empty string.
+`source` is **not** looked up as a raw `inputSourceID` by this command — only `""`, `"ASCII"`, and language codes are recognized. Passing an identifier such as `"com.apple.keylayout.US"` will not resolve and returns `""`.
 
 ### Description
 
-Use `INPUT Get source` to read back the identifier of an input source,
-whether the currently-active one, the ASCII one, or the best match for a
-given language. This is the command to call *before* using `INPUT SET
-SOURCE`, if you need to remember and later restore the user's original input
-source.
+Note the asymmetry with `INPUT SET SOURCE`: there, `""` forces the ASCII-capable source; here, `""` reports whatever is currently active, ASCII or not. Don't assume the two commands treat `""` the same way.
 
-### Examples
+Use this command to capture the active source before temporarily switching it with `INPUT SET SOURCE`, or to look up the identifier macOS would select for a given language without actually switching to it.
 
-```4d
-// What's active right now?
-$currentSource:=INPUT Get source("")
-```
+### Example
+
+From the plugin's own test method (`TEST.4dm`):
 
 ```4d
-// What's the ASCII-capable source called on this machine?
-$asciiSource:=INPUT Get source("ASCII")
-```
+$currentSource:=INPUT Get source("")  //current input source
 
-```4d
-// What identifier would macOS use for Japanese?
 $japaneseSource:=INPUT Get source("ja-JP")
-$source:=INPUT Get source("ja")            // more general form of the language code
-```
-
-```4d
-// A few more language examples
+$source:=INPUT Get source("ja")
 $americanSource:=INPUT Get source("en-US")
 $source:=INPUT Get source("fr-CA")
 $source:=INPUT Get source("fr")
+$asciiSource:=INPUT Get source("ASCII")
+```
+
+Checking whether a switch actually took effect:
+
+```4d
+INPUT SET SOURCE("ja-JP")
+If (INPUT Get source("")="com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese")
+    ALERT("Switched to Japanese input.")
+End if
 ```
 
 ---
 
-## `INPUT Sources list`
+## INPUT Sources list
+
+**`INPUT Sources list -> Collection`**
 
 ### Syntax
 
 ```4d
-$sources:=INPUT Sources list
+INPUT Sources list -> Collection
 ```
 
 No parameters.
 
-| Return value | Type | Description |
+| — | Type | Description |
 |---|---|---|
-| `$sources` | Collection | One object per input source installed on the machine. |
+| Result | Collection | One object per currently selectable input source. |
 
-### Object structure
+**Object structure** (a field is present only if macOS supplies a non-empty value for it — check with `#Null` rather than assuming a field exists):
 
-Each element of the returned collection is an object with the following
-(optional) fields — a field is present only if macOS reports a non-empty
-value for it:
-
-| Field | Type | Description |
+| Property | Type | Description |
 |---|---|---|
-| `category` | Text | Input source category, e.g. `"TISCategoryKeyboardInputSource"` or `"TISCategoryPaletteInputSource"`. |
-| `name` | Text | Localized display name, e.g. `"Japanese"`, `"U.S."`, `"ABC"`. |
+| `category` | Text | Input source category, e.g. `"TISCategoryKeyboardInputSource"`, `"TISCategoryPaletteInputSource"`. |
+| `name` | Text | Localized display name, e.g. `"Japanese"`, `"U.S."`. |
 | `type` | Text | Input source type, e.g. `"TISTypeKeyboardLayout"`, `"TISTypeKeyboardInputMethodModeEnabled"`. |
-| `inputSourceID` | Text | Unique identifier for the source — the value to pass to `INPUT SET SOURCE`. |
-| `bundleID` | Text | Bundle identifier of the input method that owns this source, if applicable. |
-| `inputModeID` | Text | Mode identifier, for input methods that expose several modes (e.g. Hiragana vs. Katakana within the same IME). |
-| `icon` | Picture | The input source's icon, if macOS can supply one. |
+| `inputSourceID` | Text | Unique identifier — the value to pass to `INPUT SET SOURCE`. |
+| `bundleID` | Text | Bundle identifier of the owning input method, when applicable. |
+| `inputModeID` | Text | Mode identifier, for input methods exposing several modes (e.g. Hiragana vs. Katakana within one IME). |
+| `icon` | Picture | The source's icon, encoded as TIFF, when macOS can supply one. |
 
 ### Description
 
-`INPUT Sources list` enumerates every keyboard layout, IME, and palette input
-source currently installed and enabled on the machine — the same set the
-user sees in **System Settings > Keyboard > Input Sources**. It's the
-natural way to build a picker UI, or to look up the exact `inputSourceID` to
-pass to `INPUT SET SOURCE`.
+This reports the same restricted, currently-selectable set of sources noted in [Requirements & platform notes](#requirements--platform-notes) — sources that are installed but currently disabled are excluded.
 
-> **Performance note:** this command loads and, where available, decodes an
-> icon image for every installed input source. On a machine with many
-> keyboard layouts and IMEs installed, expect this call to take noticeably
-> longer than a typical plugin command — avoid calling it repeatedly in a
-> loop or on every keystroke; call it once and cache the result.
+Building this list loads and, where available, re-encodes an icon for every source it returns. Expect this call to take noticeably longer than a typical plugin command on a machine with many installed keyboard layouts and IMEs — call it once and cache the result rather than calling it repeatedly (e.g. in a loop or on every keystroke).
 
-### Examples
+### Example
+
+From the plugin's own test method (`TEST.4dm`):
 
 ```4d
-// Get every installed input source
 $lists:=INPUT Sources list
 ```
 
+Building parallel arrays of names and identifiers for a picker UI:
+
 ```4d
-// Build a simple list box of input source names, keeping a parallel
-// array of identifiers to use with INPUT SET SOURCE
+$sources:=INPUT Sources list
 ARRAY TEXT($names;0)
 ARRAY TEXT($identifiers;0)
 
-For ($i;0;(INPUT Sources list).length-1)
-    $entry:=(INPUT Sources list)[$i]
-    If ($entry.name#Null)
-        APPEND TO ARRAY($names;$entry.name)
-        APPEND TO ARRAY($identifiers;$entry.inputSourceID)
+For ($i;0;$sources.length-1)
+    If ($sources[$i].name#Null)
+        APPEND TO ARRAY($names;$sources[$i].name)
+        APPEND TO ARRAY($identifiers;$sources[$i].inputSourceID)
     End if
 End for
 ```
 
-```4d
-// Find and activate the input source whose name is "Japanese"
-$sources:=INPUT Sources list
-$pos:=0
-$found:=False
+Dispatching on `category` to only list real keyboard sources (excluding palette sources):
 
+```4d
+$sources:=INPUT Sources list
+For ($i;0;$sources.length-1)
+    Case of
+        : ($sources[$i].category="TISCategoryKeyboardInputSource")
+            LOG EVENT(Into system log;$sources[$i].name+" — "+$sources[$i].inputSourceID)
+        Else
+            // palette or other category; skip
+    End case
+End for
+```
+
+---
+
+## Error handling & troubleshooting
+
+- **`INPUT SET SOURCE` fails silently on an unresolved source.** If the identifier or language code doesn't match any selectable source, the previously active source stays active and no 4D error is raised. Confirm success afterward with `INPUT Get source("")` if you need to know for certain.
+- **`INPUT Get source` returns `""` on an unresolved source**, including when a raw `inputSourceID` is passed instead of a language code or `""`/`"ASCII"` — no 4D error is raised either way.
+- **`""` means different things to the two commands.** For `INPUT SET SOURCE`, `""` forces the ASCII-capable source; for `INPUT Get source`, `""` reports whatever is currently active, of any kind. Don't assume symmetry between them.
+- **`INPUT Sources list` omits fields it can't populate**, rather than setting them to `""`. This applies especially to `bundleID`, `inputModeID`, and `icon` — check a property with `#Null` before reading it.
+- **Icon decoding can be slow.** `INPUT Sources list` loads and re-encodes an icon per source; expect it to take noticeably longer with many keyboard layouts/IMEs installed. Cache the result instead of calling it repeatedly.
+- **Language-code matching relies on an undocumented system API**, both as `INPUT SET SOURCE`'s fallback and as `INPUT Get source`'s only path for non-`""`/non-`"ASCII"` input. Its exact behavior isn't published by Apple and could shift between macOS versions.
+- **Windows behavior is unverified.** These commands were reviewed only against their macOS (Carbon) implementation — test directly on Windows before depending on them there.
+
+---
+
+## Quick reference
+
+```4d
+// Save current source, force ASCII for a field, restore afterward
+$saved:=INPUT Get source("")
+INPUT SET SOURCE("ASCII")
+  // ...
+INPUT SET SOURCE($saved)
+
+// Switch by language, then verify
+INPUT SET SOURCE("ja-JP")
+$active:=INPUT Get source("")
+
+// Enumerate selectable sources and switch to a specific one by name
+$sources:=INPUT Sources list
 For ($i;0;$sources.length-1)
     If ($sources[$i].name="Japanese")
-        $found:=True
-        $pos:=$i
-    End if
-End for
-
-If ($found)
-    INPUT SET SOURCE($sources[$pos].inputSourceID)
-End if
-```
-
-```4d
-// Show icons and names for every keyboard-category input source
-$sources:=INPUT Sources list
-For ($i;0;$sources.length-1)
-    $entry:=$sources[$i]
-    If ($entry.category="TISCategoryKeyboardInputSource")
-        LOG EVENT(Into system log;$entry.name+" — "+$entry.inputSourceID)
+        INPUT SET SOURCE($sources[$i].inputSourceID)
     End if
 End for
 ```
-
----
-
-## Worked example: force ASCII input, then restore
-
-A common pattern — combining all three commands — is to force plain ASCII
-typing for a specific field (serial numbers, license keys, passwords),
-without permanently changing what the user had active:
-
-```4d
-// --- On entry into the field ---
-$savedSource:=INPUT Get source("")  // remember what's currently active
-INPUT SET SOURCE("ASCII")           // force ASCII for this field
-
-// --- ... user types into the field ... ---
-
-// --- On exit from the field ---
-If ($savedSource#"")
-    INPUT SET SOURCE($savedSource)  // restore the original input source
-End if
-```
-
-## Worked example: language-aware default
-
-Pick an input source appropriate to the current 4D application language,
-falling back to ASCII if nothing matches:
-
-```4d
-Case of
-    : (Application language=Japanese)
-        $target:=INPUT Get source("ja-JP")
-    : (Application language=French)
-        $target:=INPUT Get source("fr")
-    Else
-        $target:=""
-End case
-
-If ($target#"")
-    INPUT SET SOURCE($target)
-Else
-    INPUT SET SOURCE("ASCII")
-End if
-```
-
-*(`Application language` above is illustrative — substitute whatever
-mechanism your database uses to know the user's preferred language.)*
-
----
-
-## Summary table
-
-| Command | Signature | Notes |
-|---|---|---|
-| `INPUT SET SOURCE` | `INPUT SET SOURCE ( source : Text )` | Accepts `""`, `"ASCII"`, an exact `inputSourceID`, or a language code. Silently does nothing if unresolved. |
-| `INPUT Get source` | `INPUT Get source ( source : Text ) -> Text` | Accepts `""`, `"ASCII"`, or a language code only — **not** a raw identifier. Returns `""` if unresolved. |
-| `INPUT Sources list` | `INPUT Sources list -> Collection` | No parameters. Can be slow with many installed sources — cache the result rather than calling repeatedly. |
