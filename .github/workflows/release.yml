@@ -49,7 +49,7 @@ jobs:
 
   build-macos:
     name: Build macOS, package, sign, notarize & release
-    needs: [version, build-windows]
+    needs: [version]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
