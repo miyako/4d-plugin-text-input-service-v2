@@ -53,36 +53,40 @@ void INPUT_SET_SOURCE(PA_PluginParameters params) {
         source = TISCopyCurrentASCIICapableKeyboardInputSource();
     }else{
         NSString *language = Param1.copyUTF16String();
-        if([language isEqualToString:@"ASCII"]){
-            source = TISCopyCurrentASCIICapableKeyboardInputSource();
-        }else{
-            CFArrayRef sources = TISCreateInputSourceList(NULL, NO);
-            if(sources)
-            {
-                CFIndex i, count = CFArrayGetCount(sources);
-                TISInputSourceRef s;
-                for (i = 0; i < count; ++i)
+        if(language != nil){
+            if([language isEqualToString:@"ASCII"]){
+                source = TISCopyCurrentASCIICapableKeyboardInputSource();
+            }else{
+                CFArrayRef sources = TISCreateInputSourceList(NULL, NO);
+                if(sources)
                 {
-                    s = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
-                    if(s != nil)
+                    CFIndex i, count = CFArrayGetCount(sources);
+                    TISInputSourceRef s;
+                    for (i = 0; i < count; ++i)
                     {
-                        if(CFStringCompare((CFStringRef)language,
-                        (CFStringRef)TISGetInputSourceProperty(s, kTISPropertyInputSourceID),
-                        kCFCompareAnchored|kCFCompareBackwards) == kCFCompareEqualTo)
+                        s = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
+                        if(s != nil)
                         {
-                            source = (TISInputSourceRef)CFRetain(s);
-                            break;
+                            CFStringRef sourceID = (CFStringRef)TISGetInputSourceProperty(s, kTISPropertyInputSourceID);
+                            /* sourceID is not guaranteed to be present for every input source;
+                               skip rather than pass NULL into CFStringCompare (undefined behavior) */
+                            if(sourceID != NULL &&
+                               CFStringCompare((CFStringRef)language, sourceID, 0) == kCFCompareEqualTo)
+                            {
+                                source = (TISInputSourceRef)CFRetain(s);
+                                break;
+                            }
                         }
                     }
+                    CFRelease(sources);
                 }
-                CFRelease(sources);
+                if(source == nil)
+                {
+                    source = TISCopyInputSourceForLanguage((CFStringRef)language);
+                }
             }
-            if(source == nil)
-            {
-                source = TISCopyInputSourceForLanguage((CFStringRef)language);
-            }
+            [language release];
         }
-        [language release];
     }
     
     if(source) {
@@ -110,13 +114,15 @@ void INPUT_Get_source(PA_PluginParameters params) {
     }else{
         NSString *language = Param1.copyUTF16String();
         
-        if([language isEqualToString:@"ASCII"]){
-            source = TISCopyCurrentASCIICapableKeyboardInputSource();
-        }else{
-            source = TISCopyInputSourceForLanguage((CFStringRef)language);
+        if(language != nil){
+            if([language isEqualToString:@"ASCII"]){
+                source = TISCopyCurrentASCIICapableKeyboardInputSource();
+            }else{
+                source = TISCopyInputSourceForLanguage((CFStringRef)language);
+            }
+            
+            [language release];
         }
-        
-        [language release];
     }
     
     if(source) {
@@ -126,6 +132,37 @@ void INPUT_Get_source(PA_PluginParameters params) {
     }
     
     returnValue.setReturn(pResult);
+}
+
+/*
+ * Converts an NSImage to a base64-encoded TIFF string, without leaking memory.
+ * Returns nil if the image has no valid raster representation (e.g. a 0-size
+ * image, or a vector-only representation that fails to rasterize) rather than
+ * risk passing a NULL CGImageRef into CGImageDestinationAddImage.
+ */
+static NSString *_base64TIFFFromNSImage(NSImage *icon) {
+
+    if(icon == nil) return nil;
+
+    NSRect imageRect = NSMakeRect(0, 0, icon.size.width, icon.size.height);
+    CGImageRef image = [icon CGImageForProposedRect:(NSRect *)&imageRect context:NULL hints:NULL];
+    if(image == NULL) return nil; /* nothing to encode; avoid feeding NULL to CGImageDestinationAddImage */
+
+    NSString *result = nil;
+    CFMutableDataRef data = CFDataCreateMutable(kCFAllocatorDefault, 0);
+    CGImageDestinationRef destination = CGImageDestinationCreateWithData(data, kUTTypeTIFF, 1, NULL);
+    if(destination != NULL)
+    {
+        CFMutableDictionaryRef properties = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, NULL, NULL);
+        CGImageDestinationAddImage(destination, image, properties);
+        CGImageDestinationFinalize(destination);
+        result = [(NSData *)data base64EncodedStringWithOptions:0];
+        CFRelease(properties);
+        CFRelease(destination);
+    }
+    CFRelease(data);
+
+    return result;
 }
 
 static void _input_sources_list(NSMutableArray *list) {
@@ -165,6 +202,13 @@ static void _input_sources_list(NSMutableArray *list) {
                 NSURL *url = (NSURL *)TISGetInputSourceProperty(s, kTISPropertyIconImageURL);
                 if(url)
                 {
+                    /*
+                     * NOTE: this reads the icon resource from disk synchronously, on the
+                     * main process (this function is invoked via PA_RunInMainProcess).
+                     * A slow or unreachable volume here will stall the whole 4D UI,
+                     * once per input source enumerated. Consider prefetching/caching
+                     * icons off the main thread if this becomes a noticeable freeze.
+                     */
                     icon = [[NSImage alloc]initWithContentsOfURL:url];
                     
                     if(!icon){
@@ -174,18 +218,8 @@ static void _input_sources_list(NSMutableArray *list) {
                     }
                     
                     if(icon){
-                        //return picture without memory leak; avoid the use of - TIFFRepresentation
-                        NSRect imageRect = NSMakeRect(0, 0, icon.size.width , icon.size.height);
-                        CGImageRef image = [icon CGImageForProposedRect:(NSRect *)&imageRect context:NULL hints:NULL];
-                        CFMutableDataRef data = CFDataCreateMutable(kCFAllocatorDefault, 0);
-                        CGImageDestinationRef destination = CGImageDestinationCreateWithData(data, kUTTypeTIFF, 1, NULL);
-                        CFMutableDictionaryRef properties = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, NULL, NULL);
-                        CGImageDestinationAddImage(destination, image, properties);
-                        CGImageDestinationFinalize(destination);
-                        [dict setObject:[(NSData *)data base64EncodedStringWithOptions:0] forKey:@"icon"];
-                        CFRelease(destination);
-                        CFRelease(properties);
-                        CFRelease(data);
+                        NSString *base64 = _base64TIFFFromNSImage(icon);
+                        if(base64 != nil) [dict setObject:base64 forKey:@"icon"];
                         [icon release];
                     }
                          
@@ -193,18 +227,8 @@ static void _input_sources_list(NSMutableArray *list) {
                     IconRef iconRef = (IconRef)TISGetInputSourceProperty(s, kTISPropertyIconRef);
                     if(iconRef){
                         NSImage *icon = [[NSImage alloc]initWithIconRef:iconRef];
-                        //return picture without memory leak; avoid the use of - TIFFRepresentation
-                        NSRect imageRect = NSMakeRect(0, 0, icon.size.width , icon.size.height);
-                        CGImageRef image = [icon CGImageForProposedRect:(NSRect *)&imageRect context:NULL hints:NULL];
-                        CFMutableDataRef data = CFDataCreateMutable(kCFAllocatorDefault, 0);
-                        CGImageDestinationRef destination = CGImageDestinationCreateWithData(data, kUTTypeTIFF, 1, NULL);
-                        CFMutableDictionaryRef properties = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, NULL, NULL);
-                        CGImageDestinationAddImage(destination, image, properties);
-                        CGImageDestinationFinalize(destination);
-                        [dict setObject:[(NSData *)data base64EncodedStringWithOptions:0] forKey:@"icon"];
-                        CFRelease(destination);
-                        CFRelease(properties);
-                        CFRelease(data);
+                        NSString *base64 = _base64TIFFFromNSImage(icon);
+                        if(base64 != nil) [dict setObject:base64 forKey:@"icon"];
                         [icon release];
                     }
                 }
@@ -250,7 +274,7 @@ void INPUT_SOURCE_LIST(PA_PluginParameters params) {
 
         NSString *icon = [dict objectForKey:@"icon"];
         if(icon != nil) {
-            NSData *data = [[NSData alloc]initWithBase64Encoding:icon];
+            NSData *data = [[NSData alloc]initWithBase64EncodedString:icon options:0];
             PA_Picture p = PA_CreatePicture((void *)[data bytes], (PA_long32)[data length]);
             ob_set_p(o, L"icon", p);
             [data release];
