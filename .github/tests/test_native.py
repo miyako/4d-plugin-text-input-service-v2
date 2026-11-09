@@ -346,14 +346,23 @@ class NativeShellTests(unittest.TestCase):
         for architectures in (
             "arm64", "x86_64", "arm64e x86_64", "arm64 x86_64h",
             "notarm64 x86_64", "arm64 x86_64_extra",
-            "arm64 x86_64 arm64e", "arm64 x86_64 x86_64h",
-            "arm64 x86_64 i386", "arm64 arm64", "x86_64 x86_64", "",
+            "arm64e x86_64h i386", "arm64 arm64", "x86_64 x86_64", "",
         ):
             with self.subTest(architectures=architectures):
                 self.assertNotEqual(
                     self.run_step("verify universal binary", ARCHS=architectures).returncode, 0
                 )
         self.assertEqual(self.calls("python3"), [])
+
+    def test_additional_slices_preserve_original_required_slice_contract(self):
+        self.build()
+        for architectures in (
+            "arm64 x86_64 i386", "arm64 x86_64 arm64e",
+            "arm64 x86_64 x86_64h", "i386 x86_64h x86_64 arm64e arm64",
+        ):
+            with self.subTest(architectures=architectures):
+                self.assert_ok(self.run_step("verify universal binary", ARCHS=architectures))
+        self.assertEqual(len(self.calls("python3")), 4)
 
     def test_architecture_order_is_not_significant(self):
         self.build()

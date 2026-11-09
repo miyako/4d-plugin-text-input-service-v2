@@ -51,7 +51,10 @@ Windows binaries are preserved. Xcode's resources phase copies source
 the copy-files phase's destination 7 copies `manifest.json` and `constants.xlf`
 into Resources. The tracked destination localization is **not** edited at intake:
 Build must recreate and validate it, including UTF-16/binary representations.
-The rebuilt binary must contain exactly arm64 and x86_64 (not arm64e/x86_64h).
+The rebuilt binary must contain the exact required arm64 and x86_64 slice names;
+arm64e/x86_64h cannot substitute for them. Additional slices remain permitted,
+preserving the original workflow's required-slice contract without adding an
+exact-count or no-i386 restriction.
 Each notarization must both exit successfully and report JSON `Accepted`.
 The original Deployment-only Xcode shell phase is unchanged and is not invoked
 by the Default Actions build.

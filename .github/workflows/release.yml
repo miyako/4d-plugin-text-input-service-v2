@@ -116,14 +116,8 @@ jobs:
           ARCH_INFO=$(lipo -info "$BIN")
           echo "$ARCH_INFO"
           ARCHS="${ARCH_INFO##*: }"
-          read -r -a SLICES <<< "$ARCHS"
-          case "${SLICES[*]}" in
-            "arm64 x86_64"|"x86_64 arm64") ;;
-            *)
-              echo "::error::Expected exactly arm64 and x86_64 slices"
-              exit 1
-              ;;
-          esac
+          grep -Eq '(^|[[:space:]])arm64([[:space:]]|$)' <<< "$ARCHS"
+          grep -Eq '(^|[[:space:]])x86_64([[:space:]]|$)' <<< "$ARCHS"
           python3 .github/scripts/source_version.py --verify-bundle "$BUNDLE_PATH"
           echo "BUNDLE_PATH=$BUNDLE_PATH" >> "$GITHUB_ENV"
 
