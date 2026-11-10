@@ -1,0 +1,25 @@
+name: Native ownership
+
+on:
+  push:
+    branches: [main, miyako-text-input-service-ownership]
+    paths:
+      - '4D Plugin API/**'
+      - '4DPlugin-Text-Input-Service.*'
+      - 'support/**'
+      - '.github/tests/ownership*'
+      - '.github/tests/test_ownership.py'
+      - '.github/workflows/ownership.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-host:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Complete SDK and actual consumers under ASan and UBSan
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 .github/tests/test_ownership.py

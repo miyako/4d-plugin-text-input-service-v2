@@ -1,6 +1,17 @@
 # 4d-plugin-text-input-service-v2
 Commands to control the front-end text editor.
 
+## Native ownership regression
+
+Run `PYTHONDONTWRITEBYTECODE=1 python3 .github/tests/test_ownership.py` on
+macOS for an unsigned ASan/UBSan synthetic-host check of the actual dispatcher,
+all wrappers and complete bundled SDK. Input-source, keyboard, image and path
+operations are stubbed; this does not build the plugin or access real input
+sources. [Audit evidence and limits](.github/tests/ownership-audit.md) include
+the immutable baseline comparison and deferred allocation-failure contracts.
+The path-filtered **Native ownership** push workflow runs this check on `main`
+and the exact audit branch; it performs no release operations.
+
 ## Manual source versioning and publication
 
 **Bump version** and **Build** are independent manual Actions. Bump version accepts
@@ -79,7 +90,7 @@ manual recovery or a new source version. No recovery deletion is automated.
 Existing signing/notary secret names remain unchanged; no secret values belong
 in the repository.
 
-Offline validation (no native tools, credentials, Actions dispatch, or publication):
+Offline validation (no credentials, Actions dispatch, or publication):
 
 ```sh
 actionlint
